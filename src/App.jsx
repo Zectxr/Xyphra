@@ -3,7 +3,7 @@ import axios from 'axios';
 import './App.css';
 import brandMarkUrl from '../virus-none-svgrepo-com.svg';
 
-const API_KEY = 'total virus here'
+const API_KEY = 'a68ac31cfb5385b86565aa3832dfd762025e665ab909a53caf4bc91a629e17b5'
 const XYPHRA_API_URL = 'https://www.virustotal.com/api/v3';
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
