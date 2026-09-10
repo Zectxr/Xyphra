@@ -3,7 +3,7 @@ import axios from 'axios';
 import './App.css';
 import brandMarkUrl from '../virus-none-svgrepo-com.svg';
 
-const API_KEY = 'a68ac31cfb5385b86565aa3832dfd762025e665ab909a53caf4bc91a629e17b5'
+const API_KEY = import.meta.env.VITE_VT_API_KEY;
 const XYPHRA_API_URL = 'https://www.virustotal.com/api/v3';
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -14,6 +14,43 @@ const CONTACT_LINKS = {
   website: 'https://edmundnimeslazaro.netlify.app/#home',
   phone: 'tel:09762320212'
 };
+
+function renderBoldText(text) {
+  const parts = [];
+  const regex = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<strong key={match.index}>{match[1]}</strong>);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
+
+async function pollAnalysis(analysisId, apiKey, maxAttempts = 20, intervalMs = 3000) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await axios.get(
+      `${XYPHRA_API_URL}/analyses/${analysisId}`,
+      { headers: { 'x-apikey': apiKey } }
+    );
+    const status = response.data.data.attributes?.status;
+    if (status === 'completed') return response;
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+  const final = await axios.get(
+    `${XYPHRA_API_URL}/analyses/${analysisId}`,
+    { headers: { 'x-apikey': apiKey } }
+  );
+  return final;
+}
 
 function App() {
   const [url, setUrl] = useState('');
@@ -53,30 +90,31 @@ function App() {
       const formData = new FormData();
       formData.append('url', url);
 
-      const response = await axios.post(
-        `${XYPHRA_API_URL}/urls`,
-        formData,
-        {
-          headers: {
-            'x-apikey': API_KEY,
-          },
+      let analysisId;
+
+      try {
+        const response = await axios.post(
+          `${XYPHRA_API_URL}/urls`,
+          formData,
+          {
+            headers: {
+              'x-apikey': API_KEY,
+            },
+          }
+        );
+        analysisId = response.data.data.id;
+      } catch (postErr) {
+        const msg = postErr.response?.data?.error?.message || '';
+        if (msg.toLowerCase().includes('already') && postErr.response?.data?.data?.id) {
+          analysisId = postErr.response.data.data.id;
+        } else if (postErr.response?.data?.meta?.url_info?.url) {
+          analysisId = postErr.response.data.meta.url_info.url;
+        } else {
+          throw postErr;
         }
-      );
+      }
 
-      const analysisId = response.data.data.id;
-
-      // Wait a bit before checking results
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-
-      // Get scan results
-      const analysisResponse = await axios.get(
-        `${XYPHRA_API_URL}/analyses/${analysisId}`,
-        {
-          headers: {
-            'x-apikey': API_KEY,
-          },
-        }
-      );
+      const analysisResponse = await pollAnalysis(analysisId, API_KEY);
 
       const attrs = analysisResponse.data.data.attributes;
       setResults(attrs);
@@ -118,36 +156,36 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await axios.post(
-        `${XYPHRA_API_URL}/files`,
-        formData,
-        {
-          headers: {
-            'x-apikey': API_KEY,
-            'Content-Type': 'multipart/form-data',
-          },
+      let analysisId;
+
+      try {
+        const response = await axios.post(
+          `${XYPHRA_API_URL}/files`,
+          formData,
+          {
+            headers: {
+              'x-apikey': API_KEY,
+              'Content-Type': 'multipart/form-data',
+            },
+          }
+        );
+        analysisId = response.data.data.id;
+      } catch (postErr) {
+        const msg = postErr.response?.data?.error?.message || '';
+        if (msg.toLowerCase().includes('already') && postErr.response?.data?.data?.id) {
+          analysisId = postErr.response.data.data.id;
+        } else if (postErr.response?.data?.meta?.file_info?.sha256) {
+          analysisId = postErr.response.data.meta.file_info.sha256;
+        } else {
+          throw postErr;
         }
-      );
+      }
 
-      const analysisId = response.data.data.id;
-
-      // Wait for analysis to complete
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-
-      // Get scan results
-      const analysisResponse = await axios.get(
-        `${XYPHRA_API_URL}/analyses/${analysisId}`,
-        {
-          headers: {
-            'x-apikey': API_KEY,
-          },
-        }
-      );
+      const analysisResponse = await pollAnalysis(analysisId, API_KEY);
 
       setResults(analysisResponse.data.data.attributes);
       
-      // Extract file ID (SHA-256) for behavior reports
-      const fileSha256 = analysisResponse.data.meta?.file_info?.sha256;
+      const fileSha256 = analysisResponse.data.meta?.file_info?.sha256 || analysisId;
       if (fileSha256) {
         setFileId(fileSha256);
       }
@@ -227,7 +265,7 @@ function App() {
       const completionResponse = await axios.post(
         GROQ_API_URL,
         {
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-120b',
           messages: [
             {
               role: 'system',
@@ -303,7 +341,7 @@ function App() {
       const completionResponse = await axios.post(
         GROQ_API_URL,
         {
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-120b',
           messages: [
             {
               role: 'system',
@@ -408,7 +446,7 @@ function App() {
             </div>
             <div className="summary-content">
               {summary.split('\n').map((line, idx) => (
-                <p key={idx}>{line}</p>
+                <p key={idx}>{renderBoldText(line)}</p>
               ))}
             </div>
           </div>
@@ -452,7 +490,7 @@ function App() {
             </div>
             <div className="summary-content">
               {summary.split('\n').map((line, idx) => (
-                <p key={idx}>{line}</p>
+                <p key={idx}>{renderBoldText(line)}</p>
               ))}
             </div>
           </div>
@@ -622,7 +660,13 @@ function App() {
           {activeTab === 'file' && (
             <form onSubmit={scanFile} className="scan-form">
               <div className="dropzone">
-                <div className="dropIcon" aria-hidden="true" />
+                <div className="dropIcon" aria-hidden="true">
+                  <svg viewBox="0 0 80 90" role="presentation">
+                    <path className="dropIconFile" d="M8 8a8 8 0 0 1 8-8h36l20 20v60a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8V8z" />
+                    <path className="dropIconFold" d="M52 0v16h16" />
+                    <path className="dropIconArrow" d="M40 32v28m0 0-10-10m10 10 10-10M28 74h24" />
+                  </svg>
+                </div>
 
                 <div className="file-input-wrapper">
                   <input
